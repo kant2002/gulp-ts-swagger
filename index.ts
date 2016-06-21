@@ -87,6 +87,116 @@ function buildJSONSchema(swaggerObject) {
     return newPathCollection;
 }
 
+class GulpTypeScriptSwaggerFile {
+    private swaggerObject;
+    private filename;
+    private push;
+
+    constructor(private useCodeGen, private codeGenSettings, private file, private callback) {
+        if (file.isStream()) {
+            throw new gutil.PluginError(PLUGIN_NAME, "Streaming not supported");
+        }
+    }
+
+    process(filename, push) {
+        this.filename = filename;
+        this.push = push;
+
+        const dereferenceOptions = {
+            $refs: { internal: false }
+        };
+        swaggerParser.dereference(
+            this.file.history[0],
+            dereferenceOptions,
+            (error, swaggerObject) => {
+                if (error) {
+                    this.callback(new gutil.PluginError(PLUGIN_NAME, error));
+                    return;
+                }
+
+                this.swaggerObject = swaggerObject;
+                this.parseSchema();
+            });
+    }
+
+    parseSchema() {
+        // Re-Validate resulting schema using different project (2nd pass), the
+        // reason being that this validator gives different (and more accurate) resutls.
+        swaggerTools.validate(this.swaggerObject, (err, result) => {
+            this.validateSchema(err, result)
+        }); // swaggerTools.validate
+    }
+
+    validateSchema(err, result) {
+        if (typeof result !== "undefined") {
+            if (result.errors.length > 0) {
+                printErrors(result.errors);
+            }
+
+            if (result.warnings.length > 0) {
+                printWarnings(result.warnings);
+            }
+
+            if (result.errors.length > 0) {
+                this.callback(new gutil.PluginError(PLUGIN_NAME, "The Swagger schema is invalid"));
+                return;
+            }
+        }
+
+        // Now that we know for sure the schema is 100% valid,
+        // dereference internal $refs as well.
+        this.parseSchema2(this.swaggerObject);
+    }
+
+    getCodegenFunction() {
+        let codeGenFunction = "get" +
+                this.codeGenSettings.type[0].toUpperCase() +
+                this.codeGenSettings.type.slice(1, this.codeGenSettings.type.length) +
+                "Code";
+        return codeGenFunction;
+    }
+
+    getCodegenSettings(swaggerObject) {
+        this.codeGenSettings.esnext = true;
+        this.codeGenSettings.swagger = swaggerObject;
+        delete this.codeGenSettings.type;
+
+        this.codeGenSettings.mustache = this.codeGenSettings.mustache || {};
+        // Allow swagger schema to be easily accessed inside templates.
+        this.codeGenSettings.mustache.swaggerObject = swaggerObject;
+
+        this.codeGenSettings.mustache.swaggerJSON = JSON.stringify(swaggerObject);
+        // Allow each individual JSON schema to be easily accessed inside templates (for validation purposes).
+
+        this.codeGenSettings.mustache.JSONSchemas = JSON.stringify(buildJSONSchema(swaggerObject));
+        return this.codeGenSettings;
+    }
+
+    parseSchema2(swaggerObject) {
+        let fileBuffer;
+
+        if (this.useCodeGen) {
+            const codeGenFunction = this.getCodegenFunction();
+            const codegenSettings = this.getCodegenSettings(swaggerObject);
+
+            fileBuffer = CodeGen[codeGenFunction](codegenSettings);
+        }
+        else {
+            fileBuffer = JSON.stringify(swaggerObject);
+        }
+
+        // Return processed file to gulp
+        this.push(new gutil.File({
+            cwd: this.file.cwd,
+            base: this.file.base,
+            path: path.join(this.file.base, this.filename),
+            contents: new Buffer(fileBuffer)
+        }));
+
+        this.callback();
+    }
+}
+
 function gulpSwagger(filename, options) {
     // Allow for passing the `filename` as part of the options.
     if (typeof filename === "object") {
@@ -143,100 +253,14 @@ function gulpSwagger(filename, options) {
     }
 
     function throughObj(file, encoding, callback) {
-        let _this = this;
-
         if (file.isStream()) {
             throw new gutil.PluginError(PLUGIN_NAME, "Streaming not supported");
         }
 
-        function parseSchema(error, swaggerObject) {
-            if (error) {
-                callback(new gutil.PluginError(PLUGIN_NAME, error));
-                return;
-            }
-
-            function validateSchema(err, result) {
-                if (err) {
-                    callback(new gutil.PluginError(PLUGIN_NAME, err));
-                    return;
-                }
-
-                if (typeof result !== "undefined") {
-                    if (result.errors.length > 0) {
-                        printErrors(result.errors);
-                    }
-
-                    if (result.warnings.length > 0) {
-                        printWarnings(result.warnings);
-                    }
-
-                    if (result.errors.length > 0) {
-                        callback(new gutil.PluginError(PLUGIN_NAME, "The Swagger schema is invalid"));
-                        return;
-                    }
-                }
-
-                function parseSchema2(error, swaggerObject) {
-                    if (error) {
-                        callback(new gutil.PluginError(PLUGIN_NAME, error));
-                        return;
-                    }
-
-                    let fileBuffer;
-
-                    if (useCodeGen) {
-                        let codeGenFunction = "get" +
-                            codeGenSettings.type[0].toUpperCase() +
-                            codeGenSettings.type.slice(1, codeGenSettings.type.length) +
-                            "Code";
-
-                        codeGenSettings.esnext = true;
-                        codeGenSettings.swagger = swaggerObject;
-                        delete codeGenSettings.type;
-
-                        codeGenSettings.mustache = codeGenSettings.mustache || {};
-                        // Allow swagger schema to be easily accessed inside templates.
-                        codeGenSettings.mustache.swaggerObject = swaggerObject;
-
-                        codeGenSettings.mustache.swaggerJSON = JSON.stringify(swaggerObject);
-                        // Allow each individual JSON schema to be easily accessed inside templates (for validation purposes).
-
-                        codeGenSettings.mustache.JSONSchemas = JSON.stringify(buildJSONSchema(swaggerObject));
-
-                        fileBuffer = CodeGen[codeGenFunction](codeGenSettings);
-                    }
-                    else {
-                        fileBuffer = JSON.stringify(swaggerObject);
-                    }
-
-                    // Return processed file to gulp
-                    _this.push(new gutil.File({
-                        cwd: file.cwd,
-                        base: file.base,
-                        path: path.join(file.base, filename),
-                        contents: new Buffer(fileBuffer)
-                    }));
-
-                    callback();
-                }
-
-                // Now that we know for sure the schema is 100% valid,
-                // dereference internal $refs as well.
-                swaggerParser.dereference(swaggerObject, parseSchema2); // swaggerParser.dereference (internal $refs)
-            }
-
-            // Re-Validate resulting schema using different project (2nd pass), the
-            // reason being that this validator gives different (and more accurate) resutls.
-            swaggerTools.validate(swaggerObject, validateSchema); // swaggerTools.validate
-        }
-
-        // Load swagger main file resolving *only* external $refs and validate schema (1st pass).
-        // We keep internal $refs intact for more accurate results in 2nd validation pass bellow.
-        swaggerParser.dereference(file.history[0], {
-            $refs: { internal: false }
-        }, parseSchema); // swaggerParser.dereference (external $refs)
+        const push = this.push.bind(this);
+        const fileRequest = new GulpTypeScriptSwaggerFile(useCodeGen, codeGenSettings, file, callback);
+        fileRequest.process(filename, push);
     }
-
     return through.obj(throughObj);
 };
 
