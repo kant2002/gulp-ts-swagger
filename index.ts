@@ -1,24 +1,30 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as through from "through2";
-const gutil = require("gulp-util");
+import * as gutil from "gulp-util";
 const swaggerParser = require("swagger-parser");
 const swaggerTools = require("swagger-tools").specs.v2; // Validate using the latest Swagger 2.x specification
 const CodeGen = require("swagger-js-codegen").CodeGen;
 const PLUGIN_NAME = "gulp-ts-swagger";
 
-function loadTemplateFile(template, templateName: string) {
-    if (typeof template !== "string" || !template.length) {
+/**
+ * Loads the template from the file.
+ * @param templateFile Name of the template file.
+ * @param templateName Name of the template for reporting errors.
+ * @return Content of the template file. 
+ */
+function loadTemplateFile(templateFile: string, templateName: string) {
+    if (typeof templateFile !== "string" || !templateFile.length) {
         return "";
     }
 
-    template = fs.readFileSync(template, "utf-8");
+    const templateContent = fs.readFileSync(templateFile, "utf-8");
 
-    if (typeof template !== "string" || !template.length) {
+    if (typeof templateContent !== "string" || !templateContent.length) {
         throw new gutil.PluginError(PLUGIN_NAME, "Could not load " + templateName + " template file. Please make sure path to file is correct.");
     }
 
-    return template;
+    return templateContent;
 }
 
 function printErrors(errors: any[]) {
@@ -55,7 +61,24 @@ function printWarnings(warnings: any[]) {
     gutil.log(message, "");
 }
 
-function buildJSONSchema(swaggerObject) {
+interface SwaggerMethodName {
+    parameters: any;
+    responses: any;
+}
+
+interface SwaggerPathMethods {
+    [methodName: string]: SwaggerMethodName;
+}
+
+interface SwaggerPathsCollection {
+    [pathName: string]: SwaggerPathMethods;
+}
+
+interface SwaggerObject {
+    paths: SwaggerPathsCollection;
+}
+
+function buildJSONSchema(swaggerObject: SwaggerObject) {
     let newPathCollection = {};
     for (let currentPath in swaggerObject.paths) {
         let pathMethods = swaggerObject.paths[currentPath] || {};
@@ -92,7 +115,7 @@ class GulpTypeScriptSwaggerFile {
     private filename;
     private push;
 
-    constructor(private useCodeGen, private codeGenSettings, private file, private callback) {
+    constructor(private useCodeGen: boolean, private codeGenSettings: CodeGenSettings, private file, private callback) {
         if (file.isStream()) {
             throw new gutil.PluginError(PLUGIN_NAME, "Streaming not supported");
         }
@@ -197,7 +220,29 @@ class GulpTypeScriptSwaggerFile {
     }
 }
 
-function gulpSwagger(filename, options) {
+interface CodeGenTemplate {
+    class: string;
+    method: string;
+    request: string;
+}
+
+interface CodeGenSettings {
+    type?: "angular" | "node" | "custom";
+    moduleName?: string;
+    className?: string;
+    template?: string | CodeGenTemplate;
+
+    esnext?: boolean;
+    swagger?: any;
+    mustache?: any;
+}
+
+interface GultTsSwaggerOptions {
+    filename?:  string;
+    codegen?: CodeGenSettings;
+}
+
+function gulpSwagger(filename, options: GultTsSwaggerOptions) {
     // Allow for passing the `filename` as part of the options.
     if (typeof filename === "object") {
         options = filename;
@@ -213,12 +258,14 @@ function gulpSwagger(filename, options) {
 
     // Flag if user actually wants to use codeGen or just parse the schema and get json back.
     let useCodeGen = typeof options.codegen === "object";
-    let codeGenSettings;
+    let codeGenSettings: CodeGenSettings;
 
     // If user wants to use the codeGen
     if (useCodeGen) {
         // Allow for shortcuts by providing sensitive defaults.
-        codeGenSettings = options.codegen || {};
+        codeGenSettings = options.codegen || {
+            type: null
+        };
         codeGenSettings.type = codeGenSettings.type || "custom"; // type of codeGen, either: "angular", "node" or "custom".
         codeGenSettings.moduleName = codeGenSettings.moduleName || "API";
         codeGenSettings.className = codeGenSettings.className || "API";
@@ -230,12 +277,7 @@ function gulpSwagger(filename, options) {
 
         // Shortcut: Allow `template` to be a string passing a single template file.
         else if (typeof codeGenSettings.template === "string") {
-            let template = fs.readFileSync(codeGenSettings.template, "utf-8");
-
-            if (typeof template !== "string" || !template.length) {
-                throw new gutil.PluginError(PLUGIN_NAME, "Could not load template file");
-            }
-
+            const template = loadTemplateFile(codeGenSettings.template, "class");
             codeGenSettings.template = {
                 class: template,
                 method: "",
