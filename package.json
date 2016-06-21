@@ -1,0 +1,44 @@
+{
+  "name": "gulp-ts-swagger",
+  "version": "1.0.0",
+  "description": "Swagger generator for TypeScript",
+  "main": "index.js",
+  "scripts": {
+    "compile": "tsc",
+    "lint": "tslint",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kant2002/gulp-ts-swagger.git"
+  },
+  "keywords": [
+    "gulp",
+    "plugin",
+    "TypeScript",
+    "Swagger",
+    "Generator",
+    "codegen"
+  ],
+  "author": "Andrey Kurdyumov <kant2002@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/kant2002/gulp-ts-swagger/issues"
+  },
+  "devDependencies": {
+    "@types/gulp-util": "^3.0.21-alpha",
+    "@types/through2": "0.0.21-alpha",
+    "@types/vinyl": "^1.1.21-alpha",
+    "gulp": "^3.9.1",
+    "tslint": "^3.11.0",
+    "typescript": "^1.9.0-dev.20160619-1.0"
+  },
+  "dependencies": {
+    "gulp-util": "^3.0.7",
+    "swagger-js-codegen": "^1.1.8",
+    "swagger-parser": "^3.4.0",
+    "swagger-tools": "^0.10.1",
+    "through2": "^2.0.1"
+  },
+  "homepage": "https://github.com/kant2002/gulp-ts-swagger#readme"
+}
