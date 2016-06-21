@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "gulp-util": "^3.0.7",
-    "swagger-js-codegen": "^1.1.8",
+    "swagger-js-codegen": "^1.5.3",
     "swagger-parser": "^3.4.0",
     "swagger-tools": "^0.10.1",
     "through2": "^2.0.1"
