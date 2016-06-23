@@ -79,13 +79,21 @@ interface SwaggerObject {
 }
 
 function buildJSONSchema(swaggerObject: SwaggerObject) {
-    let newPathCollection = {};
+    let newPathCollection = {
+        methods: {},
+        definitions: {}
+    };
     for (let currentPath in swaggerObject.paths) {
         let pathMethods = swaggerObject.paths[currentPath] || {};
         let pathSchemas = Object.keys(pathMethods)
             .reduce(function reduceMethods(newMethodCollection, currentMethod) {
-                let methodParameters = (pathMethods[currentMethod].parameters || [])
-                    .filter(function filterBodyParameter(parameter) {
+                let parameters = pathMethods[currentMethod].parameters || [];
+                if (parameters.length) {
+                    // Add last attribute to the last parameter, so it could be distinguished in the template.
+                    parameters[parameters.length - 1].last = true;
+                }
+
+                let methodParameters = parameters.filter(function filterBodyParameter(parameter) {
                         return parameter.in === "body";
                     })[0] || {};
                 let methodResponses = pathMethods[currentMethod].responses || {};
@@ -189,6 +197,7 @@ class GulpTypeScriptSwaggerFile {
         this.codeGenSettings.mustache.swaggerObject = swaggerObject;
 
         this.codeGenSettings.mustache.swaggerJSON = JSON.stringify(swaggerObject);
+        this.codeGenSettings.mustache.definitions = swaggerObject.definitions.
         // Allow each individual JSON schema to be easily accessed inside templates (for validation purposes).
 
         this.codeGenSettings.mustache.JSONSchemas = JSON.stringify(buildJSONSchema(swaggerObject));
@@ -224,10 +233,12 @@ interface CodeGenTemplate {
     class: string;
     method: string;
     request: string;
+    typeName: string;
+    typeDefinition: string;
 }
 
 interface CodeGenSettings {
-    type?: "angular" | "node" | "custom";
+    type?: "angular" | "node" | "typscript" | "custom";
     moduleName?: string;
     className?: string;
     template?: string | CodeGenTemplate;
@@ -276,12 +287,14 @@ function gulpSwagger(filename, options: GultTsSwaggerOptions) {
         }
 
         // Shortcut: Allow `template` to be a string passing a single template file.
-        else if (typeof codeGenSettings.template === "string") {
+        if (typeof codeGenSettings.template === "string") {
             const template = loadTemplateFile(codeGenSettings.template, "class");
             codeGenSettings.template = {
                 class: template,
                 method: "",
-                request: ""
+                request: "",
+                typeDefinition: "",
+                typeName: require("swagger-js-codegen/templates/type.mustache")
             };
         }
 
@@ -291,6 +304,8 @@ function gulpSwagger(filename, options: GultTsSwaggerOptions) {
             codeGenSettings.template.class = loadTemplateFile(codeGenSettings.template.class, "class");
             codeGenSettings.template.method = loadTemplateFile(codeGenSettings.template.method, "method");
             codeGenSettings.template.request = loadTemplateFile(codeGenSettings.template.request, "request");
+            codeGenSettings.template.typeDefinition = loadTemplateFile(codeGenSettings.template.typeDefinition, "typeDefinition");
+            codeGenSettings.template.typeName = loadTemplateFile(codeGenSettings.template.typeName, "typeName");
         }
     }
 
